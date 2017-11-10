@@ -36,7 +36,7 @@ def find_domain(point, polygons):
     return "unknown"
 
 def main():
-    with open('ffda_domains.geojson') as fh:
+    with open('domains.geojson') as fh:
         data = json.load(fh)
 
     domains = {}

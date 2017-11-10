@@ -1,7 +1,6 @@
 #! /usr/bin/env python3
 
 from fastkml import kml
-from pprint import pprint
 from geojson import Feature, Polygon, FeatureCollection, dumps
 
 with open("Domänen.kml") as fh:
