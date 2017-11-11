@@ -2,9 +2,12 @@
 
 import json
 import logging
+import sys
 from argparse import ArgumentParser
-from shapely.geometry import shape, Point
+from itertools import combinations
+
 import requests
+from shapely.geometry import shape, Point
 
 
 def all_nodes(url):
@@ -65,6 +68,21 @@ def main(geojson_file, meshviewer_json_url):
         logging.debug('[geojson] found feature {0}: {1} '.format(
             domainname, polygon
         ))
+
+    overlap = False
+    for a, b in combinations(polygons.items(), 2):
+        a_name, a_polygon = a
+        b_name, b_polygon = b
+        if a_polygon is b_polygon:
+            continue
+        if a_polygon.overlaps(b_polygon):
+            overlap = True
+            logging.error('[shapely] domains "{0}" and "{1}" overlap!'.format(
+                a_name, b_name
+            ))
+    if overlap:
+        logging.error('[shapely] exiting due to polygon overlap')
+        sys.exit(1)
 
     # Match nodes against domain polygons
     for node in all_nodes(meshviewer_json_url):
