@@ -7,8 +7,34 @@ from shapely.geometry import shape, Point
 import requests
 
 
+def find_neighbours(node, links):
+    neighbours = []
+    for link in links:
+        if link["type"] == "vpn":
+            # Ignore VPN links
+            continue
+
+        other_node = None
+        if link["target"] == node:
+            other_node = link["source"]
+        if link["source"] == node:
+            other_node = link["target"]
+        if other_node is None:
+            continue
+
+        neighbours.append({"type": link["type"], "id": other_node})
+
+    return neighbours
+
+def find_node_domain(node, domains):
+    for domain, nodes in domains.items():
+        for n in nodes:
+            if node == n["node_id"]:
+                return domain
+    return None
+
 def all_nodes(url):
-    data = requests.get(url).json()
+    data = requests.get(url, timeout=3).json()
     logging.info("[meshviewer.json] loaded {0}, with {1} nodes and {2} links".format(
         url, len(data.get('nodes', [])), len(data.get('links', []))
     ))
@@ -23,16 +49,20 @@ def all_nodes(url):
                 "point": Point(
                     node["location"]["longitude"],
                     node["location"]["latitude"]
-                )
+                ),
+                "neighbours": find_neighbours(node["node_id"], data["links"])
             })
         else:
-            nodes_no_location.append(node)
-
+            nodes_no_location.append({
+                "node_id": node["node_id"],
+                "name": node["hostname"],
+                "neighbours": find_neighbours(node["node_id"], data["links"])
+            })
     logging.info("[meshviewer.json] found {0} nodes with GPS location, {1} without".format(
         len(nodes), len(nodes_no_location)
     ))
 
-    return nodes
+    return nodes, nodes_no_location
 
 
 def find_domain(node, polygons):
@@ -67,11 +97,35 @@ def main(geojson_file, meshviewer_json_url):
         ))
 
     # Match nodes against domain polygons
-    for node in all_nodes(meshviewer_json_url):
+    nodes_location, nodes_no_location = all_nodes(meshviewer_json_url)
+    logging.debug("{} nodes without domain decision".format(len(nodes_no_location)))
+    for node in nodes_location:
         domainname = find_domain(node, polygons)
         if not domains.get(domainname, None):
             domains[domainname] = []
-        domains[domainname].append(node["name"])
+        domains[domainname].append(node)
+
+    logging.debug("[shapely] {} nodes without coordinates left".format(len(nodes_no_location)))
+
+    found_domain = 1
+    while found_domain > 0:
+        found_domain = 0
+        for node in nodes_no_location:
+            if len(node["neighbours"]) is 0:
+                continue
+
+            for neighbour in node["neighbours"]:
+                spec_domain = find_node_domain(neighbour["id"], domains)
+                if spec_domain is not None:
+                    logging.debug("[neighbours] Node {} ({}) assigned to domain {} based on mesh".format(node["name"],
+                                                                                                         node["node_id"],
+                                                                                                         spec_domain))
+                    domains[spec_domain].append(node)
+                    nodes_no_location.remove(node)
+                    found_domain += 1
+                    break
+
+    logging.debug("[neighbours] {} nodes without domain decision left".format(len(nodes_no_location)))
 
     for domain, nodes in domains.items():
         print("{: >80} has {: >3} nodes".format(domain, len(nodes)))
